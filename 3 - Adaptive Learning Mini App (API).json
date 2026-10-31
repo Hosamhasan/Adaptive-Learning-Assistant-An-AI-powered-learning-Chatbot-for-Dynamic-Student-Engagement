@@ -1,0 +1,951 @@
+{
+  "name": "3 - Adaptive Learning Mini App (API)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ala-api",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "f74ef026-04d6-4850-ac75-36ec8559ed68",
+      "name": "App API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        512
+      ],
+      "webhookId": "5e6354ef-e9d9-444d-9154-3671d8b44880"
+    },
+    {
+      "parameters": {
+        "jsCode": "// يتحقق إن الطلب جاي فعلاً من تليجرام (توقيع Ed25519 الرسمي) — من غير ما نحتاج توكن البوت\n// التحقق مكتوب بـ JavaScript عادي من غير مكتبة crypto، عشان n8n على الـ VPS قافلها\n// ---- Ed25519 verify + SHA-512 in plain JavaScript (BigInt), no Node modules needed ----\nconst ED = (() => {\n  const P = 2n ** 255n - 19n, L = 2n ** 252n + 27742317777372353535851937790883648493n;\n  const mod = (a, m = P) => { const r = a % m; return r >= 0n ? r : r + m; };\n  const pow = (b, e, m = P) => { let r = 1n; b = mod(b, m); while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; };\n  const inv = (a) => pow(a, P - 2n);\n  const D = mod(-121665n * inv(121666n));\n  const I = pow(2n, (P - 1n) / 4n);\n  const add = (p, q) => {\n    const [X1, Y1, Z1, T1] = p, [X2, Y2, Z2, T2] = q;\n    const A = mod((Y1 - X1) * (Y2 - X2)), B = mod((Y1 + X1) * (Y2 + X2)), C = mod(2n * T1 * T2 * D), Dd = mod(2n * Z1 * Z2);\n    const E = B - A, F = Dd - C, G = Dd + C, H = B + A;\n    return [mod(E * F), mod(G * H), mod(F * G), mod(E * H)];\n  };\n  const mul = (s, p) => { let q = [0n, 1n, 1n, 0n]; while (s > 0n) { if (s & 1n) q = add(q, p); p = add(p, p); s >>= 1n; } return q; };\n  const le = (b) => { let n = 0n; for (let i = b.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(b[i]); return n; };\n  const decode = (b) => {\n    const bb = Uint8Array.from(b); const sign = bb[31] >> 7; bb[31] &= 127;\n    const y = le(bb); if (y >= P) return null;\n    const y2 = y * y % P; const u = mod(y2 - 1n), v = mod(D * y2 + 1n);\n    let x = pow(u * inv(v), (P + 3n) / 8n);\n    if (mod(x * x - u * inv(v)) !== 0n) x = x * I % P;\n    if (mod(x * x - u * inv(v)) !== 0n) return null;\n    if (Number(x & 1n) !== sign) x = mod(-x);\n    if (x === 0n && sign) return null;\n    return [x, y, 1n, x * y % P];\n  };\n  const encode = (p) => {\n    const zi = inv(p[2]); const x = mod(p[0] * zi), y = mod(p[1] * zi);\n    const out = new Uint8Array(32); let n = y; for (let i = 0; i < 32; i++) { out[i] = Number(n & 255n); n >>= 8n; }\n    if (x & 1n) out[31] |= 128; return out;\n  };\n  const By = mod(4n * inv(5n));\n  const Bp = decode((() => { const o = new Uint8Array(32); let n = By; for (let i = 0; i < 32; i++) { o[i] = Number(n & 255n); n >>= 8n; } return o; })());\n  // SHA-512\n  const K = ['428a2f98d728ae22','7137449123ef65cd','b5c0fbcfec4d3b2f','e9b5dba58189dbbc','3956c25bf348b538','59f111f1b605d019','923f82a4af194f9b','ab1c5ed5da6d8118','d807aa98a3030242','12835b0145706fbe','243185be4ee4b28c','550c7dc3d5ffb4e2','72be5d74f27b896f','80deb1fe3b1696b1','9bdc06a725c71235','c19bf174cf692694','e49b69c19ef14ad2','efbe4786384f25e3','0fc19dc68b8cd5b5','240ca1cc77ac9c65','2de92c6f592b0275','4a7484aa6ea6e483','5cb0a9dcbd41fbd4','76f988da831153b5','983e5152ee66dfab','a831c66d2db43210','b00327c898fb213f','bf597fc7beef0ee4','c6e00bf33da88fc2','d5a79147930aa725','06ca6351e003826f','142929670a0e6e70','27b70a8546d22ffc','2e1b21385c26c926','4d2c6dfc5ac42aed','53380d139d95b3df','650a73548baf63de','766a0abb3c77b2a8','81c2c92e47edaee6','92722c851482353b','a2bfe8a14cf10364','a81a664bbc423001','c24b8b70d0f89791','c76c51a30654be30','d192e819d6ef5218','d69906245565a910','f40e35855771202a','106aa07032bbd1b8','19a4c116b8d2d0c8','1e376c085141ab53','2748774cdf8eeb99','34b0bcb5e19b48a8','391c0cb3c5c95a63','4ed8aa4ae3418acb','5b9cca4f7763e373','682e6ff3d6b2b8a3','748f82ee5defb2fc','78a5636f43172f60','84c87814a1f0ab72','8cc702081a6439ec','90befffa23631e28','a4506cebde82bde9','bef9a3f7b2c67915','c67178f2e372532b','ca273eceea26619c','d186b8c721c0c207','eada7dd6cde0eb1e','f57d4f7fee6ed178','06f067aa72176fba','0a637dc5a2c898a6','113f9804bef90dae','1b710b35131c471b','28db77f523047d84','32caab7b40c72493','3c9ebe0a15c9bebc','431d67c49c100d4c','4cc5d4becb3e42b6','597f299cfc657e2a','5fcb6fab3ad6faec','6c44198c4a475817'].map((h) => BigInt('0x' + h));\n  const M64 = (1n << 64n) - 1n;\n  const rotr = (x, n) => ((x >> n) | (x << (64n - n))) & M64;\n  const sha512 = (msg) => {\n    const len = msg.length; const padLen = ((len + 17 + 127) >> 7) << 7;\n    const b = new Uint8Array(padLen); b.set(msg); b[len] = 0x80;\n    let bits = BigInt(len) * 8n; for (let i = 0; i < 16; i++) { b[padLen - 1 - i] = Number(bits & 255n); bits >>= 8n; }\n    let H = ['6a09e667f3bcc908','bb67ae8584caa73b','3c6ef372fe94f82b','a54ff53a5f1d36f1','510e527fade682d1','9b05688c2b3e6c1f','1f83d9abfb41bd6b','5be0cd19137e2179'].map((h) => BigInt('0x' + h));\n    const W = new Array(80);\n    for (let o = 0; o < padLen; o += 128) {\n      for (let t = 0; t < 16; t++) { let w = 0n; for (let j = 0; j < 8; j++) w = (w << 8n) | BigInt(b[o + t * 8 + j]); W[t] = w; }\n      for (let t = 16; t < 80; t++) {\n        const s0 = rotr(W[t - 15], 1n) ^ rotr(W[t - 15], 8n) ^ (W[t - 15] >> 7n);\n        const s1 = rotr(W[t - 2], 19n) ^ rotr(W[t - 2], 61n) ^ (W[t - 2] >> 6n);\n        W[t] = (W[t - 16] + s0 + W[t - 7] + s1) & M64;\n      }\n      let [a, bq, c, d, e, f, g, h] = H;\n      for (let t = 0; t < 80; t++) {\n        const S1 = rotr(e, 14n) ^ rotr(e, 18n) ^ rotr(e, 41n), ch = (e & f) ^ (~e & M64 & g);\n        const t1 = (h + S1 + ch + K[t] + W[t]) & M64;\n        const S0 = rotr(a, 28n) ^ rotr(a, 34n) ^ rotr(a, 39n), mj = (a & bq) ^ (a & c) ^ (bq & c);\n        const t2 = (S0 + mj) & M64;\n        h = g; g = f; f = e; e = (d + t1) & M64; d = c; c = bq; bq = a; a = (t1 + t2) & M64;\n      }\n      H = [a, bq, c, d, e, f, g, h].map((v, i) => (H[i] + v) & M64);\n    }\n    const out = new Uint8Array(64); H.forEach((v, i) => { for (let j = 0; j < 8; j++) out[i * 8 + j] = Number((v >> BigInt(56 - 8 * j)) & 255n); }); return out;\n  };\n  const verify = (sig, msg, pub) => {\n    if (sig.length !== 64 || pub.length !== 32) return false;\n    const A = decode(pub), R = decode(sig.slice(0, 32)); if (!A || !R) return false;\n    const S = le(sig.slice(32)); if (S >= L) return false;\n    const h = mod(le(sha512(Uint8Array.from([...sig.slice(0, 32), ...pub, ...msg]))), L);\n    const left = encode(mul(S, Bp)), right = encode(add(R, mul(h, A)));\n    return left.every((v, i) => v === right[i]);\n  };\n  return { verify, sha512 };\n})();\n\n// helpers (no Node modules needed)\nconst hexBytes = (h) => Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)));\nconst utf8 = (s) => { const e = unescape(encodeURIComponent(s)); const o = new Uint8Array(e.length); for (let i = 0; i < e.length; i++) o[i] = e.charCodeAt(i); return o; };\nconst b64u = (s) => { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; s = s.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');\n  const out = []; let buf = 0, bits = 0; for (const ch of s) { const v = A.indexOf(ch); if (v < 0) return new Uint8Array(0); buf = ((buf << 6) | v) & 0xffffff; bits += 6; if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 255); } } return Uint8Array.from(out); };\n\nconst BOT_ID = '8922398010';\nconst TG_PUBLIC_KEY = 'e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d';\nconst DEV_KEY = ''; // مفتاح اختبار للمطوّر فقط — سيبه فاضي في التشغيل\n\nconst body = $json.body || {};\nlet req = {};\ntry { req = typeof body.payload === 'string' ? JSON.parse(body.payload) : (body.payload || body); } catch (e) { req = {}; }\nconst initData = String(req.initData || '');\nlet error = '', user = null;\n\nif (DEV_KEY && req.dev_key === DEV_KEY) {\n  user = { id: Number(req.dev_tg), first_name: 'dev' };\n} else if (!initData) {\n  error = 'open_from_telegram';\n} else {\n  try {\n    // تفكيك initData يدويًا (URLSearchParams مش متاح جوه n8n)\n    const fields = {};\n    initData.split('&').forEach(function (part) {\n      if (!part) return;\n      const eq = part.indexOf('=');\n      const k = decodeURIComponent((eq < 0 ? part : part.slice(0, eq)).replace(/\\+/g, ' '));\n      const v = eq < 0 ? '' : decodeURIComponent(part.slice(eq + 1).replace(/\\+/g, ' '));\n      fields[k] = v;\n    });\n    const sig = fields.signature || '';\n    const pairs = [];\n    Object.keys(fields).forEach(function (k) { if (k !== 'hash' && k !== 'signature') pairs.push(k + '=' + fields[k]); });\n    pairs.sort();\n    const check = BOT_ID + ':WebAppData\\n' + pairs.join('\\n');\n    const valid = !!sig && ED.verify(b64u(sig), utf8(check), hexBytes(TG_PUBLIC_KEY));\n    const age = Date.now() / 1000 - Number(fields.auth_date || 0);\n    if (!valid) error = 'bad_signature';\n    else if (age > 7 * 86400) error = 'expired';\n    else user = JSON.parse(fields.user || '{}');\n  } catch (e) { error = 'bad_init_data'; }\n}\n\nconst sid = String(req.session_id || '');\nconst UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nreturn [{ json: {\n  ok: !error && !!(user && user.id),\n  error: error || (user && user.id ? '' : 'no_user'),\n  telegram_id: user && user.id ? user.id : 0,\n  first_name: (user && user.first_name) || '',\n  action: String(req.action || ''),\n  topic: String(req.topic || '').slice(0, 120).trim(),\n  count: Math.min(10, Math.max(3, Number(req.count) || 5)),\n  session_id: UUID.test(sid) ? sid : '00000000-0000-0000-0000-000000000000',\n  index: Number(req.index),\n  choice: Number(req.choice)\n} }];\n"
+      },
+      "id": "fcbb9700-705b-4c64-8dd9-8337b8a8b267",
+      "name": "Verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cec422e5-29ef-45f4-8654-07365eadc0bc",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, grade, group_name FROM students WHERE telegram_id = $1::bigint AND active = true LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $json.telegram_id ] }}"
+        }
+      },
+      "id": "1f263443-58be-485f-9270-f4cb7c97e631",
+      "name": "Load Student",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        672,
+        400
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "SidBbhwVPw4ILknq",
+          "name": "Postgres account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.name }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9012dd46-adfe-4971-8ffc-2f6a09095520",
+      "name": "Registered?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Verify').first().json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "me"
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Verify').first().json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "quiz_new"
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Verify').first().json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "quiz_answer"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unknown"
+        }
+      },
+      "id": "afac3d56-7428-45dd-b583-2392386e6171",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1104,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n (SELECT coalesce(json_agg(w), '[]'::json) FROM (SELECT idea, max(lesson) AS lesson, count(*)::int AS n FROM mistakes WHERE telegram_id = $1::bigint AND coalesce(idea, '') <> '' GROUP BY idea ORDER BY n DESC LIMIT 5) w) AS weak,\n (SELECT coalesce(json_agg(s), '[]'::json) FROM (SELECT homework_code, score, total, created_at FROM submissions WHERE telegram_id = $1::bigint AND status = 'graded' ORDER BY created_at DESC LIMIT 6) s) AS subs,\n (SELECT json_build_object('count', count(*)::int, 'correct', coalesce(sum(score), 0)::int, 'total', coalesce(sum(jsonb_array_length(answers)), 0)::int) FROM quiz_sessions WHERE telegram_id = $1::bigint) AS quiz;",
+        "options": {
+          "queryReplacement": "={{ [ $('Verify').first().json.telegram_id ] }}"
+        }
+      },
+      "id": "e4d6b4ae-4481-42a0-b356-f5cf3576f5dc",
+      "name": "Load Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1344,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SidBbhwVPw4ILknq",
+          "name": "Postgres account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('Load Student').first().json;\nconst r = $input.first().json || {};\nconst q = r.quiz || {};\nreturn [{ json: { response: {\n  ok: true,\n  name: s.name,\n  grade: s.grade || '',\n  group: s.group_name || '',\n  weak: (r.weak || []).map(function (w) { return { idea: w.idea, lesson: w.lesson || '', n: Number(w.n) }; }),\n  subs: (r.subs || []).map(function (x) { return { code: x.homework_code, score: Number(x.score), total: Number(x.total), date: x.created_at }; }),\n  quiz: { count: Number(q.count || 0), correct: Number(q.correct || 0), total: Number(q.total || 0) }\n} } }];\n"
+      },
+      "id": "f34fd9b1-0b83-48fd-9e06-2ae41ef752db",
+      "name": "Build Progress",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {}
+      },
+      "id": "620630fd-c871-4562-aa48-a4ee6a1ec74e",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        3120,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const v = $('Verify').first().json;\nconst general = !v.topic;\nconst topic = v.topic || 'مراجعة عامة على المنهج';\n// البحث في المنهج: المنهج مكتوب بالإنجليزي، فبنضيف كلمات إنجليزي للمراجعة العامة\nconst query = general ? 'key definitions, laws, properties and calculations' : topic;\nreturn [{ json: { topic: topic, query: query, count: v.count } }];\n"
+      },
+      "id": "b5a17198-bafd-48ac-8aa3-0bee719f55cb",
+      "name": "Quiz Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "tableName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "documents",
+          "cachedResultName": "documents"
+        },
+        "prompt": "={{ $json.query }}",
+        "topK": 8,
+        "options": {
+          "queryName": "match_documents"
+        }
+      },
+      "id": "6680c689-7580-4f42-adb1-4843be924ae4",
+      "name": "Curriculum Lookup",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        208
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "iRSRVvtt5sQpUrEj",
+          "name": "Supabase · learn for all"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "772d3b17-88db-481f-8a00-97d5d9acdbf4",
+      "name": "Gemini Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        400
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Eb5nAOxyKHKruEcF",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const t = $('Quiz Topic').first().json;\nconst MODEL = 'gemini-3.8-flash'; // نفس موديل تصحيح الواجبات\nconst docs = $input.all().map(function (i) {\n  const j = i.json || {};\n  return (j.document && j.document.pageContent) || j.pageContent || '';\n}).filter(function (d, i, all) { return d && all.indexOf(d) === i; }); // من غير تكرار\nconst SYSTEM = 'You write multiple-choice practice questions for the students of Mr. Mohammed Hussien, a chemistry/science teacher in Egypt.\\n'\n  + 'Rules:\\n'\n  + '- Use ONLY facts found in the curriculum excerpts. Never invent facts or values.\\n'\n  + '- Write exactly the requested number of questions about the requested topic. If the excerpts do not cover the topic well, use the closest related content in the excerpts. If there are no excerpts, return {\"topic\":\"\",\"questions\":[]}.\\n'\n  + '- Write each question and its options in simple Arabic, keeping scientific terms, formulas, units and numeric values exactly as in the curriculum (English terms may stay in English).\\n'\n  + '- Exactly 4 options, one correct, plausible distractors, no \"all of the above\". Vary the position of the correct answer across questions.\\n'\n  + '- \"answer\" is the 0-based index of the correct option.\\n'\n  + '- \"explanation\": Egyptian Arabic, 1-2 short lines explaining why the correct answer is right.\\n'\n  + '- \"idea\": short Arabic name of the tested concept (2-5 words).\\n'\n  + '- \"topic\": short Arabic title for this quiz (2-5 words).\\n'\n  + '- No markdown anywhere.\\n'\n  + 'Return ONLY valid JSON: {\"topic\":\"\",\"questions\":[{\"q\":\"\",\"options\":[\"\",\"\",\"\",\"\"],\"answer\":0,\"explanation\":\"\",\"idea\":\"\"}]}';\nconst user = 'Topic: ' + t.topic + '\\nNumber of questions: ' + t.count + '\\n\\nCurriculum excerpts:\\n' + (docs.length ? docs.join('\\n---\\n') : '(none)');\nconst body = {\n  systemInstruction: { parts: [{ text: SYSTEM }] },\n  contents: [{ role: 'user', parts: [{ text: user }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 8192, responseMimeType: 'application/json' }\n};\nreturn [{ json: { body: body, model: MODEL } }];\n"
+      },
+      "id": "275ee919-5312-4c95-9030-2d4f2ec7e4c7",
+      "name": "Build Quiz Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/' + $json.model + ':generateContent' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "d4da9158-e831-43aa-bba3-7fb31c5c3a36",
+      "name": "Gemini Quiz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        208
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Eb5nAOxyKHKruEcF",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const t = $('Quiz Topic').first().json;\nconst res = $input.first().json || {};\nlet g = null;\ntry {\n  const parts = (((res.candidates || [])[0] || {}).content || {}).parts || [];\n  const txt = parts.filter(function (c) { return c.text && !c.thought; }).map(function (c) { return c.text; }).join('');\n  const m = txt.match(/\\{[\\s\\S]*\\}/);\n  if (m) g = JSON.parse(m[0]);\n} catch (e) {}\nconst qs = ((g && g.questions) || []).filter(function (q) {\n  const a = Number(q && q.answer);\n  return q && q.q && Array.isArray(q.options) && q.options.length === 4 && Number.isInteger(a) && a >= 0 && a < 4;\n}).slice(0, t.count).map(function (q) {\n  return { q: String(q.q), options: q.options.map(String), answer: Number(q.answer), explanation: String(q.explanation || ''), idea: String(q.idea || t.topic) };\n});\nreturn [{ json: { ok: qs.length > 0, topic: (g && g.topic) || t.topic, questions_json: JSON.stringify(qs), total: qs.length } }];\n"
+      },
+      "id": "c6d9cc19-e75e-4111-9dd6-d93cb15f3b8c",
+      "name": "Parse Quiz",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbc6a967-5c6f-475a-8100-45d30b881b20",
+      "name": "Quiz OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO quiz_sessions (telegram_id, topic, questions, total) VALUES ($1::bigint, $2, $3::jsonb, $4::int) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Verify').first().json.telegram_id, $json.topic, $json.questions_json, $json.total ] }}"
+        }
+      },
+      "id": "524aff89-964b-47b2-a60f-0a37102b7331",
+      "name": "Save Quiz",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2672,
+        128
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SidBbhwVPw4ILknq",
+          "name": "Postgres account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Parse Quiz').first().json;\nconst qs = JSON.parse(p.questions_json);\nreturn [{ json: { response: {\n  ok: true,\n  session_id: $input.first().json.id,\n  topic: p.topic,\n  total: qs.length,\n  questions: qs.map(function (q) { return { q: q.q, options: q.options }; })\n} } }];\n"
+      },
+      "id": "60f5d3f8-bba5-44b5-bf6b-c30b77aba9c3",
+      "name": "Quiz Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { response: { ok: false, error: 'quiz_failed' } } }];\n"
+      },
+      "id": "0b7e4909-5041-408f-a78c-889494b0e7b7",
+      "name": "Quiz Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM quiz_sessions WHERE id = $1::uuid AND telegram_id = $2::bigint LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Verify').first().json.session_id, $('Verify').first().json.telegram_id ] }}"
+        }
+      },
+      "id": "0e4b8d67-2469-4a5b-9640-16bc7274c86f",
+      "name": "Load Quiz",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1344,
+        512
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "SidBbhwVPw4ILknq",
+          "name": "Postgres account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const v = $('Verify').first().json;\nconst r = $input.first().json || {};\nif (!r.id) return [{ json: { skip: true, response: { ok: false, error: 'session_not_found' } } }];\nconst qs = Array.isArray(r.questions) ? r.questions : [];\nconst answers = Array.isArray(r.answers) ? r.answers : [];\nconst i = v.index;\nconst q = qs[i];\nif (!q || !(v.choice >= 0 && v.choice < 4)) return [{ json: { skip: true, response: { ok: false, error: 'bad_answer' } } }];\nconst prev = answers.find(function (a) { return a.i === i; });\nif (prev) {\n  return [{ json: { skip: true, response: { ok: true, correct: prev.ok, answer: q.answer, explanation: q.explanation, idea: q.idea, score: r.score, total: r.total, finished: r.finished } } }];\n}\nconst ok = q.answer === v.choice;\nconst next = answers.concat([{ i: i, c: v.choice, ok: ok }]);\nconst score = r.score + (ok ? 1 : 0);\nconst finished = next.length >= r.total;\n// الغلطة بتتسجل في جدول mistakes عشان تظهر في \"نقط ضعفي\" في البوت والمنصة\nconst mistakes = ok ? [] : [{ question: 'Q' + (i + 1), idea: q.idea, lesson: r.topic, correction: q.options[q.answer] }];\nreturn [{ json: {\n  skip: false,\n  session_id: r.id,\n  answers_json: JSON.stringify(next),\n  score: score,\n  finished: finished,\n  mistakes_json: JSON.stringify(mistakes),\n  response: { ok: true, correct: ok, answer: q.answer, explanation: q.explanation, idea: q.idea, score: score, total: r.total, finished: finished }\n} }];\n"
+      },
+      "id": "8c8e9be8-573b-4472-9602-b9ee3feb5146",
+      "name": "Grade Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skip }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0f1fb65f-953a-455b-ae59-d9b4f185c7a5",
+      "name": "Save Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH u AS (\n  UPDATE quiz_sessions SET answers = $2::jsonb, score = $3::int, finished = $4::boolean WHERE id = $1::uuid RETURNING telegram_id\n)\nINSERT INTO mistakes (telegram_id, homework_code, question, idea, lesson, correction)\nSELECT u.telegram_id, 'QUIZ', m->>'question', m->>'idea', m->>'lesson', m->>'correction'\nFROM u, jsonb_array_elements($5::jsonb) AS m\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.session_id, $json.answers_json, $json.score, $json.finished, $json.mistakes_json ] }}"
+        }
+      },
+      "id": "facecc84-7ec3-4aa3-bd01-5ba5fe0231bc",
+      "name": "Save Answer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        448
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "SidBbhwVPw4ILknq",
+          "name": "Postgres account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { response: $('Grade Answer').first().json.response } }];\n"
+      },
+      "id": "88d446aa-b43d-4c83-a70c-f5db13634366",
+      "name": "Answer Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { response: { ok: false, error: 'bad_action' } } }];\n"
+      },
+      "id": "70316dcb-e70e-4f8b-b37b-a8dfee4ae181",
+      "name": "Bad Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { response: { ok: false, error: 'not_registered' } } }];\n"
+      },
+      "id": "23d6b0a3-7ec9-4b53-98e2-ae24aba897a2",
+      "name": "Not Registered",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { response: { ok: false, error: $json.error || 'unauthorized' } } }];\n"
+      },
+      "id": "71d8094c-1772-435b-8fd5-140787f05554",
+      "name": "Auth Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        720
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "App API": {
+      "main": [
+        [
+          {
+            "node": "Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Load Student",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Student": {
+      "main": [
+        [
+          {
+            "node": "Registered?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registered?": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not Registered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Load Progress",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Quiz Topic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Quiz",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bad Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Progress": {
+      "main": [
+        [
+          {
+            "node": "Build Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Progress": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quiz Topic": {
+      "main": [
+        [
+          {
+            "node": "Curriculum Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Curriculum Lookup": {
+      "main": [
+        [
+          {
+            "node": "Build Quiz Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Curriculum Lookup",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Quiz Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini Quiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Quiz": {
+      "main": [
+        [
+          {
+            "node": "Parse Quiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Quiz": {
+      "main": [
+        [
+          {
+            "node": "Quiz OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quiz OK?": {
+      "main": [
+        [
+          {
+            "node": "Save Quiz",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Quiz Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Quiz": {
+      "main": [
+        [
+          {
+            "node": "Quiz Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quiz Payload": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quiz Failed": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Quiz": {
+      "main": [
+        [
+          {
+            "node": "Grade Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grade Answer": {
+      "main": [
+        [
+          {
+            "node": "Save Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Needed?": {
+      "main": [
+        [
+          {
+            "node": "Save Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Answer": {
+      "main": [
+        [
+          {
+            "node": "Answer Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Payload": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bad Action": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not Registered": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Error": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "e519e846-11fa-4b26-a15c-11b136392387",
+  "meta": {
+    "instanceId": "013f65d1dadc771bdcc2cebcc8bfa00e094e1545e7e6bef869d384a8a345a14e"
+  },
+  "nodeGroups": [],
+  "id": "IwQY6PHXrFqmHg3K",
+  "tags": []
+}
